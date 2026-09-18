@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Image Upload to S3</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            width: 400px;
+            text-align: center;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            margin-bottom: 25px;
+        }
+
+        input {
+            margin: 20px 0;
+        }
+
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+            white-space: pre-wrap;
+        }
+
+        #preview {
+            max-width: 100%;
+            max-height: 250px;
+            margin-top: 20px;
+            border-radius: 8px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Upload Image</h1>
+
+    <input
+        type="file"
+        id="imageInput"
+        accept="image/*"
+    >
+
+    <br>
+
+    <button id="uploadButton" onclick="uploadImage()">
+        Upload Image
+    </button>
+
+    <img id="preview" alt="Image preview">
+
+    <div id="status"></div>
+
+</div>
+
+
+<script>
+
+const LAMBDA_URL =
+    "https://m3dtue3o3ham2jwgw2wlloeaym0rckxb.lambda-url.ap-south-1.on.aws/";
+
+
+async function uploadImage() {
+
+    const input = document.getElementById("imageInput");
+    const status = document.getElementById("status");
+    const button = document.getElementById("uploadButton");
+
+    // Check if image is selected
+    if (!input.files || input.files.length === 0) {
+        status.innerText = "Please select an image.";
+        return;
+    }
+
+    const file = input.files[0];
+
+    try {
+
+        button.disabled = true;
+
+        // -------------------------------
+        // STEP 1: Get presigned URL
+        // -------------------------------
+
+        status.innerText = "Getting upload URL...";
+
+        const lambdaResponse = await fetch(LAMBDA_URL, {
+            method: "GET"
+        });
+
+        if (!lambdaResponse.ok) {
+            throw new Error(
+                "Lambda error: " + lambdaResponse.status
+            );
+        }
+
+        const data = await lambdaResponse.json();
+
+        console.log("Lambda response:", data);
+
+        if (!data.upload_url) {
+            throw new Error("Upload URL was not returned by Lambda.");
+        }
+
+
+        // -------------------------------
+        // STEP 2: Upload directly to S3
+        // -------------------------------
+
+        status.innerText = "Uploading image...";
+
+        const s3Response = await fetch(data.upload_url, {
+            method: "PUT",
+            body: file
+        });
+
+
+        // -------------------------------
+        // STEP 3: Check S3 response
+        // -------------------------------
+
+        if (!s3Response.ok) {
+
+            const errorText = await s3Response.text();
+
+            console.error("S3 error:", errorText);
+
+            throw new Error(
+                "S3 upload failed: " +
+                s3Response.status
+            );
+        }
+
+
+        // -------------------------------
+        // SUCCESS
+        // -------------------------------
+
+        status.innerText =
+            "✅ Image uploaded successfully!\n\n" +
+            "File: " +
+            data.file_key;
+
+        console.log("Uploaded file:", data.file_key);
+
+    } catch (error) {
+
+        console.error("Upload error:", error);
+
+        status.innerText =
+            "❌ Upload failed.\n\n" +
+            error.message;
+
+    } finally {
+
+        button.disabled = false;
+    }
+}
+
+
+// ------------------------------------
+// Image preview
+// ------------------------------------
+
+document
+    .getElementById("imageInput")
+    .addEventListener("change", function(event) {
+
+        const file = event.target.files[0];
+
+        if (!file) {
+            return;
+        }
+
+        const preview = document.getElementById("preview");
+
+        preview.src = URL.createObjectURL(file);
+
+        preview.style.display = "block";
+    });
+
+</script>
+
+</body>
+</html>
